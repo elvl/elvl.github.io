@@ -64,10 +64,6 @@
       display: block;
     }
 
-    #preview-test {
-      display: none;
-    }
-
     section {
       margin: 3rem 0;
     }
@@ -162,13 +158,13 @@
         </div>
 
         <div class="form-set">
-          <input type="range" id="contrast-ratio" min="1" max="20" step="1" value="10" />
-          <label for="contrast-ratio">ratio (<span class="indicator"></span>)</label>
+          <input type="range" id="smoothstep-min" min="0.7" max="0.99" step="0.01" value="0.9" />
+          <label for="smoothstep-min">min (<span class="indicator"></span>)</label>
         </div>
 
         <div class="form-set">
-          <input type="range" id="contrast-shift" min="0.8" max="0.99" step="0.01"  value="0.95" />
-          <label for="contrast-shift">shift (<span class="indicator"></span>)</label>
+          <input type="range" id="smoothstep-max" min="0.7" max="0.99" step="0.01"  value="0.95" />
+          <label for="smoothstep-max">max (<span class="indicator"></span>)</label>
         </div>
       </fieldset>
     </form>
@@ -245,8 +241,6 @@
   updateColor()
 
   function updateImage(image) {
-    document.body.classList.toggle('has-image', image)
-
     if (!image) {
       return
     }
@@ -282,7 +276,7 @@
     const maxIndex = testRGB.findIndex(e => e === 255)
 
     document.querySelectorAll('.dye-color input[type=range]').forEach(el => {
-      el.nextElementSibling.querySelector('.indicator').textContent = el.value
+      el.nextElementSibling.querySelector('.indicator').textContent = Number(el.value).toFixed(2).padStart(4, '0')
     })
 
     if (minIndex < 0 || maxIndex < 0 || !dataOrig) {
@@ -291,6 +285,8 @@
 
     const showMask = document.getElementById('show-mask').checked
     const hueOrig = rgb2hue(...testRGB)
+    const stepMinMax = Array.from(document.querySelectorAll('input[type=range]'))
+      .map(e => Number(e.value)).sort((a, b) => a - b)
 
     for (let i = 0; i < dataOrig.data.length; i += 4) {
       const o = dataOrig.data
@@ -301,7 +297,7 @@
 
       const hue = rgb2hue(o[i], o[i + 1], o[i + 2])
       const hueDiff = 1 - Math.min(Math.abs(hue - hueOrig), Math.abs(hue + 1 - hueOrig), Math.abs(hueOrig + 1 - hue))
-      const bgMask = contrast(Math.max(hueDiff, multiplyMask)) * alpha
+      const bgMask = Math.min(smoothstep(stepMinMax[0], stepMinMax[1], hueDiff), smoothstep(0.1, 0.2, multiplyMask)) * alpha
 
       for (let ii = 0; ii < 3; ii++) {
         const mask = bgMask * multiplyMask
@@ -321,41 +317,32 @@
     ctxDyed.putImageData(dataDyed, 0, 0)
   }
 
-  function contrast(c) {
-    const ratio = Number(document.getElementById('contrast-ratio').value)
-    const shift = Number(document.getElementById('contrast-shift').value)
-    return Math.max(Math.min(ratio * (c - shift) + shift, 1), 0)
-  }
-
   function rgb2hue(r, g, b) {
     const max = Math.max(r, g, b)
     const min = Math.min(r, g, b)
 
-    if (r === g && r === b) {
+    if (max === min) {
       return 0
     }
 
     let hue
 
     if (r === max) {
-      hue = 60 * (g - b) / (max - min)
+      hue = (g - b) / (max - min) + 1 // 0 ~ 2
     }
     else if (g === max) {
-      hue = 60 * (b - r) / (max - min) + 120
+      hue = (b - r) / (max - min) + 3 // 2 ~ 4
     }
     else if (b === max) {
-      hue = 60 * (r - g) / (max - min) + 240
+      hue = (r - g) / (max - min) + 5 // 4 ~ 6
     }
 
-    if (hue < 0) {
-      hue += 360
-    }
+    return hue / 6
+  }
 
-    if (hue > 360) {
-      hue = 360
-    }
-
-    return hue / 360
+  function smoothstep(min, max, x) {
+    x = Math.max(0, Math.min(1, (x - min) / (max - min)))
+    return x * x * (3 - 2 * x)
   }
 </script>
 </html>
