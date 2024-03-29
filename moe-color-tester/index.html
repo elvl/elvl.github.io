@@ -297,7 +297,7 @@
 
       const hue = rgb2hue(o[i], o[i + 1], o[i + 2])
       const hueDiff = 1 - Math.min(Math.abs(hue - hueOrig), Math.abs(hue + 1 - hueOrig), Math.abs(hueOrig + 1 - hue))
-      const bgMask = Math.min(smoothstep(stepMinMax[0], stepMinMax[1], hueDiff), smoothstep(0.1, 0.2, multiplyMask)) * alpha
+      const bgMask = Math.min(smoothstep(stepMinMax[0], stepMinMax[1], hueDiff), smoothstep(0, 0.07, multiplyMask)) * alpha
 
       for (let ii = 0; ii < 3; ii++) {
         const mask = bgMask * multiplyMask
