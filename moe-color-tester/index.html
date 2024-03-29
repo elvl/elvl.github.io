@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>MoE Color Tester</title>
+  <style type="text/css">
+    body {
+      max-width: min(900px, calc(100vw - 2rem));
+      margin: 0 auto;
+    }
+
+    .editor {
+      width: 100%;
+      min-width: 250px;
+      min-height: 50px;
+      border: rgba(0, 0, 0, .1) 4px dashed;
+      outline: none;
+      background-color: rgba(0, 0, 0, .05);
+      transition: background-color .2s;
+      border-radius: 3px;
+    }
+
+    .editor:focus {
+      background-color: rgba(0, 0, 0, .1);
+    }
+
+    .colour-picker select {
+      border: 1px solid rgba(0, 0, 0, .1);
+      border-radius: 3px;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .colour-picker select:nth-child(2) {
+      background-color: rgba(255, 0, 0, .1);
+    }
+
+    .colour-picker select:nth-child(3) {
+      background-color: rgba(0, 255, 0, .1);
+    }
+
+    .colour-picker select:nth-child(4) {
+      background-color: rgba(0, 0, 255, .1);
+    }
+
+    fieldset {
+      margin: 1rem 0;
+      border: 2px solid rgba(0, 0, 0, .1);
+      border-radius: 3px;
+      padding: .5rem .7rem;
+    }
+
+    .note {
+      font-size: 80%;
+      margin: .5rem 0 0 0;
+      color: rgba(0, 0, 0, .6);
+    }
+
+    .error--cors {
+      display: none;
+    }
+
+    .has-error--cors .error--cors {
+      display: block;
+    }
+
+    #preview-test {
+      display: none;
+    }
+
+    section {
+      margin: 3rem 0;
+    }
+
+    .error {
+      padding: .5em .7rem;
+      background-color: rgba(255, 200, 0, .1);
+      border: 2px solid rgba(255, 200, 0, .2);
+      border-radius: 3px;
+      color: rgba(0, 80, 135, 1.0);
+    }
+
+    .form-set {
+      display: flex;
+      align-items: center;
+      margin: .5rem;
+    }
+
+    .form-set:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .form-set:first-of-type {
+      margin-top: 0;
+    }
+
+    .form-set label {
+      margin: 0 .5rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>MoE Color Tester</h1>
+
+  <section class="test-input">
+    <h2>入力</h2>
+
+    <form class="test-color">
+      <fieldset class="colour-picker">
+        <legend>染色に使った色</legend>
+        <select></select>
+        <select></select>
+        <select></select>
+        <p class="note">
+          MoE 内の表記 (%) を選択してください。<br />
+          使用した染色液の RGB いずれかに、0% と 100% が含まれている必要があります。<br />
+          <a href="http://blog.livedoor.jp/moepic_ru/">公式ブログ</a> の画像が水色 (0% 100% 100%) で染色されているのでおすすめです。
+        </p>
+      </fieldset>
+
+      <fieldset class="test-image">
+        <legend>画像</legend>
+        <div class="editor" contenteditable="true"></div>
+        <p class="note">上のグレーの領域に画像をペーストするか、ファイルをドロップしてください。</p>
+
+        <p class="error error--cors">
+          エラーがあったため、処理を中断しました。
+          外部サイトやローカルファイルから画像を直接コピペすると、ブラウザのセキュリティにより処理できません。
+          画像を DL してドロップするか <a href="https://www.knystudio.net/rapture.html">Rapture</a> などのツールを経由してコピペしてください。
+        </p>
+
+        <canvas class='preview-test' width="30" height="30"></canvas>
+      </fieldset>
+    </form>
+
+    <ul class="note">
+      <li>シェーダーを off にすると光源の影響を排除できていいかも。</li>
+      <li>装備の固有色が含まれていない色が理想的です。例えば、黄色のラインが入っている服を黄色で染めると分離が難しくなります。</li>
+      <li>同じ理由で、背景や肌色や髪色とも被らない色が理想的です。灰色の石壁や雪原、カラー設定の sfxmode を弄った上でカーレイで /sfxmode を使って背景をグレーにするとか。</li>
+      <li>スクショ取らずにゲーム画面の一部だけ貼りたい (ツイートしたい) / スクショの一部を貼りたい / 染色前と後を比較したい 等々 → <a href="https://www.knystudio.net/rapture.html">Rapture</a> が神</li>
+    </ul>
+  </section>
+
+  <section class="test-output">
+    <h2>出力</h2>
+
+    <form class="dye-color">
+      <fieldset class="colour-picker">
+        <legend>染色</legend>
+        <select></select>
+        <select></select>
+        <select></select>
+      </fieldset>
+
+      <fieldset>
+        <legend>マスク</legend>
+
+        <div class="form-set">
+          <input type="checkbox" id="show-mask" />
+          <label for="show-mask">マスクを表示</label>
+        </div>
+
+        <div class="form-set">
+          <input type="range" id="contrast-ratio" min="1" max="20" step="1" value="10" />
+          <label for="contrast-ratio">ratio (<span class="indicator"></span>)</label>
+        </div>
+
+        <div class="form-set">
+          <input type="range" id="contrast-shift" min="0.8" max="0.99" step="0.01"  value="0.95" />
+          <label for="contrast-shift">shift (<span class="indicator"></span>)</label>
+        </div>
+      </fieldset>
+    </form>
+
+    <canvas class='preview-dyed' width="30" height="30"></canvas>
+
+    <ul class="note">
+      <li>画像を右クリックで保存できます。</li>
+      <li>白染めの画像とマスク画像を保存して、フォトショップなどで修正や合成できます。(染色したい色を乗算で重ねてマスクを適用してください)</li>
+      <li>染色液自体のシミュは <a href="https://wind.noor.jp/">れんの気まぐれ美容院</a> さんでどうぞ。</li>
+    </ul>
+  </section>
+
+  <section class="about">
+    <p>昔、もえからー俺版みたいなやつで、染色シミュ(色の調合ではなく実際の服の色を出すやつ)を公開してたんですが、MoE 休止してる間にサイト消えてて、元のソースも手元に残ってないっていう。かろうじて覚えてたんで、あのシミュを作る工程を自動化したものがこれです。わかってる人用の雑な作り。</p>
+  </section>
+</body>
+
+<script type="text/javascript">
+  "use strict"
+
+  const editor = document.querySelector('.test-image .editor')
+  const ctxOrig = document.querySelector('.preview-test').getContext('2d')
+  const ctxDyed = document.querySelector('.preview-dyed').getContext('2d')
+  let dataOrig, dataDyed
+
+  document.querySelectorAll('select').forEach((el, index) => {
+    for (let i = 0; i <= 31; i++) {
+      const option = document.createElement('OPTION')
+      option.value = (i === 31) ? 255 : Math.floor(256 / 31 * i)
+      option.appendChild(document.createTextNode(Math.floor(100 / 31 * i) + '%'))
+      el.appendChild(option)
+
+      if (index > 0 && i === 31) {
+        option.selected = true
+      }
+      else if (index === 0 && i === 0) {
+        option.selected = true
+      }
+    }
+  })
+
+  document.querySelector('.dye-color').addEventListener('change', updateColor)
+  document.querySelector('.test-color').addEventListener('change', updateColor)
+
+  editor.addEventListener('input', event => {
+    let image
+
+    while (editor.firstChild) {
+      const e = editor.firstChild
+      if (e.nodeType === 1 && e.tagName === 'IMG') {
+        image = e
+      }
+      editor.removeChild(e)
+    }
+
+    updateImage(image)
+  })
+
+  editor.addEventListener('drop', event => {
+    event.preventDefault()
+    const file = event.dataTransfer.files[0]
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const image = document.createElement('img')
+      image.setAttribute('src', reader.result)
+      updateImage(image)
+    }
+
+    reader.readAsDataURL(file)
+  })
+
+  updateColor()
+
+  function updateImage(image) {
+    document.body.classList.toggle('has-image', image)
+
+    if (!image) {
+      return
+    }
+
+    image.addEventListener('load', event => {
+      document.querySelectorAll('canvas').forEach(el => {
+        el.width = image.width
+        el.height = image.height
+      })
+
+      ctxOrig.drawImage(image, 0, 0)
+      dataDyed = ctxDyed.createImageData(image.width, image.height)
+
+      try {
+        dataOrig = ctxOrig.getImageData(0, 0, image.width, image.height)
+        document.body.classList.remove('has-error--cors')
+      }
+      catch (e) {
+        if (e instanceof DOMException) {
+          document.body.classList.add('has-error--cors')
+        }
+      }
+
+      ctxOrig.putImageData(dataOrig, 0, 0)
+      updateColor()
+    })
+  }
+
+  function updateColor(event) {
+    const testRGB = Array.from(document.querySelectorAll('.test-color .colour-picker select')).map(e => ~~ e.value)
+    const dyeRGB = Array.from(document.querySelectorAll('.dye-color .colour-picker select')).map(e => ~~ e.value)
+    const minIndex = testRGB.findIndex(e => e === 0)
+    const maxIndex = testRGB.findIndex(e => e === 255)
+
+    document.querySelectorAll('.dye-color input[type=range]').forEach(el => {
+      el.nextElementSibling.querySelector('.indicator').textContent = el.value
+    })
+
+    if (minIndex < 0 || maxIndex < 0 || !dataOrig) {
+      return
+    }
+
+    const showMask = document.getElementById('show-mask').checked
+    const hueOrig = rgb2hue(...testRGB)
+
+    for (let i = 0; i < dataOrig.data.length; i += 4) {
+      const o = dataOrig.data
+      const min = o[i + minIndex] / 255
+      const max = o[i + maxIndex] / 255
+      const alpha = o[i + 3] / 255
+      const multiplyMask = 1 - min / max
+
+      const hue = rgb2hue(o[i], o[i + 1], o[i + 2])
+      const hueDiff = 1 - Math.min(Math.abs(hue - hueOrig), Math.abs(hue + 1 - hueOrig), Math.abs(hueOrig + 1 - hue))
+      const bgMask = contrast(Math.max(hueDiff, multiplyMask)) * alpha
+
+      for (let ii = 0; ii < 3; ii++) {
+        const mask = bgMask * multiplyMask
+
+        if (showMask) {
+          dataDyed.data[i + ii] = mask * 255
+        }
+        else {
+          const base = bgMask * max * 255 + (1 - bgMask) * o[i + ii]
+          dataDyed.data[i + ii] = mask * base * dyeRGB[ii] / 255 + (1 - mask) * base
+        }
+      }
+
+      dataDyed.data[i + 3] = 255
+    }
+
+    ctxDyed.putImageData(dataDyed, 0, 0)
+  }
+
+  function contrast(c) {
+    const ratio = Number(document.getElementById('contrast-ratio').value)
+    const shift = Number(document.getElementById('contrast-shift').value)
+    return Math.max(Math.min(ratio * (c - shift) + shift, 1), 0)
+  }
+
+  function rgb2hue(r, g, b) {
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+
+    if (r === g && r === b) {
+      return 0
+    }
+
+    let hue
+
+    if (r === max) {
+      hue = 60 * (g - b) / (max - min)
+    }
+    else if (g === max) {
+      hue = 60 * (b - r) / (max - min) + 120
+    }
+    else if (b === max) {
+      hue = 60 * (r - g) / (max - min) + 240
+    }
+
+    if (hue < 0) {
+      hue += 360
+    }
+
+    if (hue > 360) {
+      hue = 360
+    }
+
+    return hue / 360
+  }
+</script>
+</html>
