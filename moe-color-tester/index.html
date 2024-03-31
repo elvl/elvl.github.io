@@ -5,8 +5,15 @@
   <title>MoE Color Tester</title>
   <style type="text/css">
     body {
-      max-width: min(900px, calc(100vw - 2rem));
+      max-width: min(900px, 100vw);
       margin: 0 auto;
+      padding: 0 1rem;
+      overflow-y: scroll;
+    }
+
+    body.mode--hairstyle {
+      max-width: 900px;
+      width: 900px;
     }
 
     .editor {
@@ -17,7 +24,7 @@
       outline: none;
       background-color: rgba(0, 0, 0, .05);
       transition: background-color .2s;
-      border-radius: 3px;
+      border-radius: 4px;
     }
 
     .editor:focus {
@@ -26,7 +33,7 @@
 
     .colour-picker select {
       border: 1px solid rgba(0, 0, 0, .1);
-      border-radius: 3px;
+      border-radius: 4px;
       font-size: 16px;
       padding: 4px;
     }
@@ -46,7 +53,7 @@
     fieldset {
       margin: 1rem 0;
       border: 2px solid rgba(0, 0, 0, .1);
-      border-radius: 3px;
+      border-radius: 4px;
       padding: .5rem .7rem;
     }
 
@@ -68,11 +75,15 @@
       margin: 3rem 0;
     }
 
+    section:first-of-type {
+      margin-top: 2rem;
+    }
+
     .error {
       padding: .5em .7rem;
       background-color: rgba(255, 200, 0, .1);
       border: 2px solid rgba(255, 200, 0, .2);
-      border-radius: 3px;
+      border-radius: 4px;
       color: rgba(0, 80, 135, 1.0);
     }
 
@@ -93,11 +104,81 @@
     .form-set label {
       margin: 0 .5rem;
     }
+
+    .mode-tab {
+      border-bottom: 2px solid rgba(0, 0, 0, .3);
+    }
+
+    .mode-tab .tab-button {
+      position: relative;
+      top: 2px;
+      width: 5rem;
+      margin: 0 .5rem;
+      border: 2px solid rgba(0, 0, 0, .15);
+      border-bottom: 2px solid rgba(0, 0, 0, .3);
+      background-color: rgba(255, 255, 255, 1.0);
+      font-size: 16px;
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      color: rgba(0, 0, 0, .5);
+      transition: all .2s;
+    }
+
+    .mode-tab .tab-button.tab--current {
+      color: rgba(0, 0, 0, 1);
+      border: 2px solid rgba(0, 0, 0, .3);
+      border-bottom: 2px solid rgba(255, 255, 255, 1);
+    }
+
+    .mode-tab .tab-button:first-of-type {
+      margin-left: 1rem;
+    }
+
+    .mode--hairstyle .test-input,
+    .mode--hairstyle h2,
+    .mode--hairstyle .mask-control .form-set {
+      display: none;
+    }
+
+    .mode--hairstyle .mask-control .form-set:first-of-type {
+      display: block;
+    }
+
+    .mode--hairstyle .hairstyle {
+      display: block;
+    }
+
+    .mode--hairstyle .test-output {
+      margin-top: 1rem !important;
+    }
+
+    .hairstyle {
+      display: none;
+      margin: 0 !important;
+    }
+
+    .race-selector label {
+      margin-right: 1rem;
+    }
+
   </style>
 </head>
 
 <body>
   <h1>MoE Color Tester</h1>
+
+  <nav class="mode-tab">
+    <button class="tab-button" data-mode="general">汎用</button>
+    <button class="tab-button" data-mode="hairstyle">髪型</button>
+  </nav>
+
+  <section class="hairstyle">
+    <form class="hairstyle-settings">
+      <fieldset class="race-selector">
+        <legend>種族</legend>
+      </fieldset>
+    </form>
+  </section>
 
   <section class="test-input">
     <h2>入力</h2>
@@ -149,7 +230,7 @@
         <select></select>
       </fieldset>
 
-      <fieldset>
+      <fieldset class="mask-control">
         <legend>マスク</legend>
 
         <div class="form-set">
@@ -186,90 +267,200 @@
 <script type="text/javascript">
   "use strict"
 
-  const editor = document.querySelector('.test-image .editor')
-  const ctxOrig = document.querySelector('.preview-test').getContext('2d')
-  const ctxDyed = document.querySelector('.preview-dyed').getContext('2d')
-  let dataOrig, dataDyed
+  const raceList = [
+    { key: 'nm', name: 'にゅたお', },
+    { key: 'nf', name: 'にゅたこ', },
+    { key: 'cm', name: 'こぐお', },
+    { key: 'cf', name: 'こぐねえ', },
+    { key: 'em', name: 'もにお', },
+    { key: 'ef', name: 'もにこ', },
+    { key: 'pm', name: 'ぱんお', },
+    { key: 'pf', name: 'ぱんこ', },
+  ]
+  const ctxOrig = document.querySelector('.preview-test').getContext('2d', { willReadFrequently: true })
+  const ctxDyed = document.querySelector('.preview-dyed').getContext('2d', { willReadFrequently: true })
+  let dataOrig, dataDyed, dataHair, currentMode
 
-  document.querySelectorAll('select').forEach((el, index) => {
-    for (let i = 0; i <= 31; i++) {
-      const option = document.createElement('OPTION')
-      option.value = (i === 31) ? 255 : Math.floor(256 / 31 * i)
-      option.appendChild(document.createTextNode(Math.floor(100 / 31 * i) + '%'))
-      el.appendChild(option)
-
-      if (index > 0 && i === 31) {
-        option.selected = true
-      }
-      else if (index === 0 && i === 0) {
-        option.selected = true
-      }
-    }
-  })
-
-  document.querySelector('.dye-color').addEventListener('change', updateColor)
-  document.querySelector('.test-color').addEventListener('change', updateColor)
-
-  editor.addEventListener('input', event => {
-    let image
-
-    while (editor.firstChild) {
-      const e = editor.firstChild
-      if (e.nodeType === 1 && e.tagName === 'IMG') {
-        image = e
-      }
-      editor.removeChild(e)
-    }
-
-    updateImage(image)
-  })
-
-  editor.addEventListener('drop', event => {
-    event.preventDefault()
-    const file = event.dataTransfer.files[0]
-
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const image = document.createElement('img')
-      image.setAttribute('src', reader.result)
-      updateImage(image)
-    }
-
-    reader.readAsDataURL(file)
-  })
-
+  initializeDOM()
+  initializeHandler()
+  handleModeChange()
   updateColor()
 
-  function updateImage(image) {
+  function initializeDOM() {
+    document.querySelectorAll('select').forEach((el, index) => {
+      for (let i = 0; i <= 31; i++) {
+        const option = document.createElement('OPTION')
+        option.value = (i === 31) ? 255 : Math.floor(256 / 31 * i)
+        option.textContent = Math.floor(100 / 31 * i) + '%'
+        el.appendChild(option)
+
+        if (index > 0 && i === 31) {
+          option.selected = true
+        }
+        else if (index === 0 && i === 0) {
+          option.selected = true
+        }
+      }
+    })
+
+    const raceSelector = document.querySelector('.race-selector')
+    for (const race of raceList) {
+      const radio = document.createElement('INPUT')
+      radio.type = 'radio'
+      radio.id = 'race--' + race.key
+      radio.value = race.key
+      radio.name = 'race-selector'
+      raceSelector.appendChild(radio)
+
+      if (race === raceList[0]) {
+        radio.checked = true
+      }
+
+      const label = document.createElement('LABEL')
+      label.setAttribute('for', 'race--' + race.key)
+      label.textContent = race.name
+      raceSelector.appendChild(label)
+    }
+  }
+
+  function initializeHandler() {
+    document.querySelectorAll('.mode-tab .tab-button').forEach(el => el.addEventListener('click', handleModeChange))
+    document.querySelector('.dye-color').addEventListener('change', updateColor)
+    document.querySelector('.test-color').addEventListener('change', updateColor)
+    document.querySelector('.hairstyle-settings').addEventListener('change', updateHairstyleImage)
+
+    const editor = document.querySelector('.test-image .editor')
+    editor.addEventListener('input', event => {
+      let image
+
+      while (editor.firstChild) {
+        const e = editor.firstChild
+        if (e.nodeType === 1 && e.tagName === 'IMG') {
+          image = e
+        }
+        editor.removeChild(e)
+      }
+
+      updateImage(image)
+    })
+
+    editor.addEventListener('drop', event => {
+      event.preventDefault()
+      const file = event.dataTransfer.files[0]
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const image = new Image()
+        image.src = reader.result
+        updateImage(image)
+      }
+
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function handleModeChange(event) {
+    const tab = document.querySelectorAll('.mode-tab .tab-button')
+    const modeList = Array.from(tab).map(el => el.dataset.mode)
+
+    currentMode = event?.target.dataset.mode
+    if (!modeList.includes(currentMode)) {
+      currentMode = 'general'
+    }
+
+    document.body.classList.remove(...modeList.map(el => 'mode--' + el))
+    document.body.classList.add('mode--' + currentMode)
+    tab.forEach(el => el.classList.toggle('tab--current', el.dataset.mode === currentMode))
+
+    resetCanvas()
+
+    if (currentMode === 'hairstyle') {
+      updateHairstyleImage()
+    }
+    else {
+      updateImage()
+    }
+  }
+
+  async function updateImage(image) {
+    resetCanvas()
+
     if (!image) {
       return
     }
 
-    image.addEventListener('load', event => {
-      document.querySelectorAll('canvas').forEach(el => {
-        el.width = image.width
-        el.height = image.height
-      })
+    await image.decode()
+    setCanvasSize(image.width, image.height)
+    ctxOrig.drawImage(image, 0, 0)
+    dataDyed = ctxDyed.createImageData(image.width, image.height)
 
-      ctxOrig.drawImage(image, 0, 0)
-      dataDyed = ctxDyed.createImageData(image.width, image.height)
-
-      try {
-        dataOrig = ctxOrig.getImageData(0, 0, image.width, image.height)
-        document.body.classList.remove('has-error--cors')
+    try {
+      dataOrig = ctxOrig.getImageData(0, 0, image.width, image.height)
+      document.body.classList.remove('has-error--cors')
+    }
+    catch (e) {
+      if (e instanceof DOMException) {
+        document.body.classList.add('has-error--cors')
       }
-      catch (e) {
-        if (e instanceof DOMException) {
-          document.body.classList.add('has-error--cors')
-        }
+    }
+
+    updateColor()
+  }
+
+  async function updateHairstyleImage() {
+    const baseImage = new Image()
+    const maskImage = new Image()
+    const race = document.querySelector('.hairstyle-settings')['race-selector'].value || raceList[0].key
+
+    const loadImage = async (image, src) => {
+      image.src = src
+      await image.decode()
+    }
+
+    await Promise.all([
+      loadImage(baseImage, `hairstyle/${race}-luma.png`),
+      loadImage(maskImage, `hairstyle/${race}-mask.png`),
+    ])
+
+    setCanvasSize(baseImage.width, baseImage.height)
+    ctxOrig.drawImage(baseImage, 0, 0)
+    dataOrig = ctxOrig.getImageData(0, 0, baseImage.width, baseImage.height)
+    ctxOrig.drawImage(maskImage, 0, 0)
+    dataHair = ctxOrig.getImageData(0, 0, maskImage.width, maskImage.height)
+    dataDyed = ctxDyed.createImageData(baseImage.width, baseImage.height)
+
+    updateColor()
+  }
+
+  function updateHairColor(event) {
+    const dyeRGB = Array.from(document.querySelectorAll('.dye-color .colour-picker select')).map(e => ~~ e.value)
+
+    const showMask = document.getElementById('show-mask').checked
+    if (showMask) {
+      ctxDyed.putImageData(dataHair, 0, 0)
+      return
+    }
+
+    for (let i = 0; i < dataOrig.data.length; i += 4) {
+      const bg = dataOrig.data
+      const mask = dataHair.data[i] / 255
+
+      for (let ii = 0; ii < 3; ii++) {
+        dataDyed.data[i + ii] = (bg[i + ii] * dyeRGB[ii] / 255) * mask + bg[i + ii] * (1 - mask)
       }
 
-      ctxOrig.putImageData(dataOrig, 0, 0)
-      updateColor()
-    })
+      dataDyed.data[i + 3] = 255
+    }
+
+    ctxDyed.putImageData(dataDyed, 0, 0)
   }
 
   function updateColor(event) {
+    if (currentMode === 'hairstyle') {
+      updateHairColor()
+      return
+    }
+
     const testRGB = Array.from(document.querySelectorAll('.test-color .colour-picker select')).map(e => ~~ e.value)
     const dyeRGB = Array.from(document.querySelectorAll('.dye-color .colour-picker select')).map(e => ~~ e.value)
     const minIndex = testRGB.findIndex(e => e === 0)
@@ -343,6 +534,22 @@
   function smoothstep(min, max, x) {
     x = Math.max(0, Math.min(1, (x - min) / (max - min)))
     return x * x * (3 - 2 * x)
+  }
+
+  function setCanvasSize(w, h) {
+    document.querySelectorAll('canvas').forEach(el => {
+      el.width = w
+      el.height = h
+    })
+  }
+
+  function resetCanvas() {
+    const w = 30
+    setCanvasSize(w, w)
+    ctxOrig.clearRect(0, 0, w, w)
+    ctxDyed.clearRect(0, 0, w, w)
+    dataOrig = null
+    dataDyed = null
   }
 </script>
 </html>
