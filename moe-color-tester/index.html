@@ -157,10 +157,39 @@
       margin: 0 !important;
     }
 
+    .race-selector {
+      position: relative;
+    }
+
+    .loading .race-selector:after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
     .race-selector label {
       margin-right: 1rem;
     }
 
+    .kumagure-link {
+      display: flex;
+      align-items: center;
+    }
+
+    .color-sample {
+      width: 3em;
+      height: 1em;
+      margin-right: .5em;
+      border: 1px solid rgba(0, 0, 0, .1);
+    }
+
+    .kumagure-link a {
+      color: inherit;
+    }
   </style>
 </head>
 
@@ -228,6 +257,10 @@
         <select></select>
         <select></select>
         <select></select>
+        <p class="kumagure-link note">
+          <span class="color-sample"></span>
+          <a target="mixture">れんの気まぐれ美容院でこの色を逆引き検索</a>
+        </p>
       </fieldset>
 
       <fieldset class="mask-control">
@@ -412,6 +445,8 @@
     const maskImage = new Image()
     const race = document.querySelector('.hairstyle-settings')['race-selector'].value || raceList[0].key
 
+    document.body.classList.toggle('loading', true)
+
     const loadImage = async (image, src) => {
       image.src = src
       await image.decode()
@@ -430,12 +465,40 @@
     dataDyed = ctxDyed.createImageData(baseImage.width, baseImage.height)
 
     updateColor()
+    document.body.classList.toggle('loading', false)
   }
 
-  function updateHairColor(event) {
+  function updateColor(event) {
+    const showMask = document.getElementById('show-mask').checked
     const dyeRGB = Array.from(document.querySelectorAll('.dye-color .colour-picker select')).map(e => ~~ e.value)
 
-    const showMask = document.getElementById('show-mask').checked
+    const params = new URLSearchParams({
+      cmd: 'search',
+      selectedRGBunit: 100,
+      mode: (currentMode === 'hairstyle') ? 'B' : 'S',
+      bleachSearchFlg: 1,
+      failBleachSearchFlg: 1,
+      FailDyeSearchFlg: 1,
+      hyouhakuSearchFlg: 1,
+      r: dyeRGB[0],
+      g: dyeRGB[1],
+      b: dyeRGB[2],
+    }).toString()
+    const link = document.querySelector('.kumagure-link a')
+    link.href = 'https://wind.noor.jp/mix/mixture.cgi?' + params
+
+    const sample = document.querySelector('.kumagure-link .color-sample')
+    sample.style.backgroundColor = `rgba(${dyeRGB[0]}, ${dyeRGB[1]}, ${dyeRGB[2]}, 1.0)`
+
+    if (currentMode === 'hairstyle') {
+      updateHairColor(dyeRGB, showMask)
+    }
+    else {
+      updateClothColor(dyeRGB, showMask)
+    }
+  }
+
+  function updateHairColor(dyeRGB, showMask) {
     if (showMask) {
       ctxDyed.putImageData(dataHair, 0, 0)
       return
@@ -455,14 +518,8 @@
     ctxDyed.putImageData(dataDyed, 0, 0)
   }
 
-  function updateColor(event) {
-    if (currentMode === 'hairstyle') {
-      updateHairColor()
-      return
-    }
-
+  function updateClothColor(dyeRGB, showMask) {
     const testRGB = Array.from(document.querySelectorAll('.test-color .colour-picker select')).map(e => ~~ e.value)
-    const dyeRGB = Array.from(document.querySelectorAll('.dye-color .colour-picker select')).map(e => ~~ e.value)
     const minIndex = testRGB.findIndex(e => e === 0)
     const maxIndex = testRGB.findIndex(e => e === 255)
 
@@ -474,7 +531,6 @@
       return
     }
 
-    const showMask = document.getElementById('show-mask').checked
     const hueOrig = rgb2hue(...testRGB)
     const stepMinMax = Array.from(document.querySelectorAll('input[type=range]'))
       .map(e => Number(e.value)).sort((a, b) => a - b)
