@@ -107,6 +107,9 @@
     const skinWidth = 2048;
     const layerDefinitions = [
       {
+        name: '何もいれない',
+      },
+      {
         name: '名前背景ありで HP バーをまるごと入れ替える',
         file: 'name-all-swap.png',
       },
@@ -152,10 +155,33 @@
     initialize()
 
     function initialize() {
+      const layerList = document.getElementById('layerList')
+      layerList.addEventListener('change', () => {
+        Array.from(layerList.getElementsByTagName('input')).forEach(input => {
+          layers.forEach(l => {
+            if (l.id === parseInt(input.dataset.id)) l.enabled = input.checked
+          })
+        })
+        redrawCanvas()
+      })
+
       layers.forEach(layer => {
-        layer.image = new Image()
-        layer.image.onload = () => layer.loaded = true
-        layer.image.src = `./images/${layer.file}`
+        const label = document.createElement('label')
+        label.textContent = layer.name
+
+        const checkbox = document.createElement('input')
+        checkbox.dataset.id = layer.id
+        checkbox.type = layer.type
+        if (layer.type === 'radio') checkbox.name = 'layer-option'
+
+        label.prepend(checkbox)
+        layerList.appendChild(label)
+
+        if (layer.file) {
+          layer.image = new Image()
+          layer.image.onload = () => layer.loaded = true
+          layer.image.src = `./images/${layer.file}`
+        }
       })
 
       canvas.addEventListener('drop', event => {
@@ -171,38 +197,10 @@
         reader.readAsDataURL(file)
       })
 
-      const layerList = document.getElementById('layerList')
-      layers.forEach((layer, index) => {
-        const item = document.createElement('div')
-        item.className = 'layer-item'
-        item.dataset.id = layer.id
-
-        const label = document.createElement('label')
-        label.textContent = layer.name
-
-        const checkbox = document.createElement('input')
-        checkbox.type = layer.type
-        if (layer.type === 'radio') checkbox.name = 'layer-option'
-
-        checkbox.addEventListener('change', e => {
-          if (layer.type === 'radio') {
-            layers.forEach(l => {
-              if (l.type === 'radio') l.enabled = false
-            })
-          }
-
-          layer.enabled = e.target.checked
-          redrawCanvas()
-        })
-
-        label.prepend(checkbox)
-        layerList.appendChild(label)
-      })
+      redrawCanvas()
     }
 
     function redrawCanvas() {
-      if (!skinImage) return
-
       ctx.imageSmoothingEnabled = false
       ctx.mozImageSmoothingEnabled = false
       ctx.webkitImageSmoothingEnabled = false
