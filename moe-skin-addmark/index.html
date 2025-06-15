@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoE の HP ばーにめもりいれるやつ</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      font-family: sans-serif;
+    }
+
+    body {
+      display: flex;
+    }
+
+    ol {
+      padding-left: 1rem;
+    }
+
+    .preview {
+      width: 750px;
+      flex-grow: 1;
+      overflow: hidden;
+      background-image:
+        linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%),
+        linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%);
+        background-size: 20px 20px;
+        background-position: 0 0, 10px 10px;
+      cursor: default;
+    }
+
+    #previewCanvas {
+      position: relative;
+      top: -300px;
+      left: 0;
+    }
+
+    .controls {
+      display: flex;
+      flex-grow: 0;
+      max-width: 300px;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 1rem;
+      box-shadow: -10px 0 5px -5px rgba(0 0 0 / .2);
+      font-size: .85rem;
+    }
+
+    .controls h2 {
+      margin: 0;
+    }
+
+    .controls h1 {
+      margin: 0;
+      font-size: 1em;
+      color: rgb(0 0 0 / .5);
+    }
+
+    .controls label {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .controls input {
+      margin-right: .5rem;
+    }
+
+    #layerList {
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="preview">
+    <canvas id="previewCanvas" contenteditable="true" width="2048" height="2048"></canvas>
+  </div>
+
+  <div class="controls">
+    <h1>MoE の HP ばーにめもりいれるやつ</h1>
+    <h2>つかいかた</h2>
+    <ol>
+      <li>左に MoE のスキンをドロップする</li>
+      <li>下からすきなのを選ぶ</li>
+      <li>左のを右クリから保存</li>
+      <li>ローカルで適当な手段で png から bmp にする</li>
+    </ol>
+
+    <fieldset id="layerList">
+      <legend>かさねるもの</legend>
+    </fieldset>
+
+    <p>なんかドットがガタガタじゃね？ ってのは MoE 内でレンダリングされると意図したようになるよ！ <a href="https://note.com/6elz/n/nd16908bbddc7">原理について</a></p>
+
+    <p>ネタ元のスキンは <a href="https://note.com/6elz/n/n9ab0aafc5e1e#063dd774-a8e7-4ca0-a2b9-bc3103a9b267">starseeker</a></p>
+    <p>ほんとはスキン使ってくれると嬉しいんですよ？！ まぁ万人向けじゃないのはわかってるからな</p>
+    <p>目盛りは可能な限り正確にしてある。これ以上は仕様上多分むり。あってなくね？って人はリンク先のアニメーション GIF を見てくれ～</p>
+    <p>MoE に大昔の ReShade や enb converter をそのまま使ってて、古い d3d8to9 ( d3d8.dll ) 使ってるとボケボケになって意図した見た目にならない。そういう場合は <a href="https://github.com/crosire/d3d8to9/releases">d3d8.dll を更新</a> してくれ。何のことかわからんって人は影響ないからスルーでおｋ。</p>
+  </div>
+
+  <script type="module">
+    const skinWidth = 2048;
+    const layerDefinitions = [
+      {
+        name: '名前背景ありで HP バーをまるごと入れ替える',
+        file: 'name-all-swap.png',
+      },
+      {
+        name: '名前背景なしで HP バーをまるごと入れ替える',
+        file: 'all-swap.png',
+      },
+      {
+        name: 'シマシマ部分だけ入れ替える (細め)',
+        file: 'stripe-swap.png',
+      },
+      {
+        name: 'シマシマ部分だけ入れ替える (太め)',
+        file: 'stripe-swap-wide.png',
+      },
+      {
+        name: 'シマシマを元の背景に重ねる (細め)',
+        file: 'stripe-overlay.png',
+      },
+      {
+        name: 'シマシマを元の背景に重ねる (太め)',
+        file: 'stripe-overlay-wide.png',
+      },
+      {
+        name: 'HP バーの外側にドットをつける',
+        file: 'dot-overlay.png',
+        type: 'checkbox',
+      },
+    ]
+
+    const canvas = document.getElementById('previewCanvas')
+    const ctx = canvas.getContext('2d')
+    const skinImage = new Image()
+    const layers = layerDefinitions.map((def, index) => ({
+      id: index,
+      enabled: false,
+      name: def.name,
+      file: def.file,
+      image: null,
+      type: def.type ? def.type : 'radio',
+    }))
+
+    initialize()
+
+    function initialize() {
+      layers.forEach(layer => {
+        layer.image = new Image()
+        layer.image.onload = () => layer.loaded = true
+        layer.image.src = `./images/${layer.file}`
+      })
+
+      canvas.addEventListener('drop', event => {
+        event.preventDefault()
+        const file = event.dataTransfer.files[0]
+
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          skinImage.src = reader.result
+          skinImage.onload = redrawCanvas
+        }
+
+        reader.readAsDataURL(file)
+      })
+
+      const layerList = document.getElementById('layerList')
+      layers.forEach((layer, index) => {
+        const item = document.createElement('div')
+        item.className = 'layer-item'
+        item.dataset.id = layer.id
+
+        const label = document.createElement('label')
+        label.textContent = layer.name
+
+        const checkbox = document.createElement('input')
+        checkbox.type = layer.type
+        if (layer.type === 'radio') checkbox.name = 'layer-option'
+
+        checkbox.addEventListener('change', e => {
+          if (layer.type === 'radio') {
+            layers.forEach(l => {
+              if (l.type === 'radio') l.enabled = false
+            })
+          }
+
+          layer.enabled = e.target.checked
+          redrawCanvas()
+        })
+
+        label.prepend(checkbox)
+        layerList.appendChild(label)
+      })
+    }
+
+    function redrawCanvas() {
+      if (!skinImage) return
+
+      ctx.imageSmoothingEnabled = false
+      ctx.mozImageSmoothingEnabled = false
+      ctx.webkitImageSmoothingEnabled = false
+      ctx.msImageSmoothingEnabled = false
+      ctx.clearRect(0, 0, skinWidth, skinWidth)
+
+      const scale = skinWidth / skinImage.width
+      ctx.scale(scale, scale)
+      ctx.drawImage(skinImage, 0, 0)
+      
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      layers.forEach(layer => {
+        if (layer.enabled && layer.image && layer.image.complete) {
+          ctx.drawImage(layer.image, 0, 0, skinWidth, skinWidth)
+        }
+      })
+    }
+
+  </script>
+</body>
+</html>
