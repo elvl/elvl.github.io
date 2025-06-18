@@ -156,16 +156,17 @@
 
     function initialize() {
       const layerList = document.getElementById('layerList')
+
       layerList.addEventListener('change', () => {
-        Array.from(layerList.getElementsByTagName('input')).forEach(input => {
-          layers.forEach(l => {
-            if (l.id === parseInt(input.dataset.id)) l.enabled = input.checked
-          })
-        })
+        for (const input of layerList.getElementsByTagName('input')) {
+          for (const layer of layers) {
+            if (layer.id === parseInt(input.dataset.id)) layer.enabled = input.checked
+          }
+        }
         redrawCanvas()
       })
 
-      layers.forEach(layer => {
+      for (const layer of layers) {
         const label = document.createElement('label')
         label.textContent = layer.name
 
@@ -182,7 +183,7 @@
           layer.image.onload = () => layer.loaded = true
           layer.image.src = `./images/${layer.file}`
         }
-      })
+      }
 
       canvas.addEventListener('drop', event => {
         event.preventDefault()
@@ -212,11 +213,12 @@
       ctx.drawImage(skinImage, 0, 0)
       
       ctx.setTransform(1, 0, 0, 1, 0, 0)
-      layers.forEach(layer => {
+
+      for (const layer of layers) {
         if (layer.enabled && layer.image && layer.image.complete) {
           ctx.drawImage(layer.image, 0, 0, skinWidth, skinWidth)
         }
-      })
+      }
     }
 
   </script>
