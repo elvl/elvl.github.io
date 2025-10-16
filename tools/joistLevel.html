@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Grid Inspector</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for 3D preview -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        /* Basic styles for the app */
+        body {
+            touch-action: none;
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+        }
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .grid-text {
+            font-size: 80px;
+            font-family: monospace;
+            font-weight: bold;
+            cursor: pointer;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        #preview-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        /* Styles for 3D labels */
+        #labels-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Prevents labels from interfering with mouse/touch controls */
+        }
+        .label {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.8);
+            color: #1e293b;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+            font-weight: bold;
+            transform: translate(-50%, -50%); /* Center the label */
+            white-space: nowrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex flex-col h-screen overflow-hidden">
+
+    <!-- Header for controls -->
+    <header class="bg-white shadow-md p-2">
+        <div class="container mx-auto grid grid-cols-3 sm:flex sm:justify-around gap-2 items-center text-sm font-semibold">
+            <button id="displayModeBtn" class="bg-blue-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95">初期値</button>
+            <button id="unitModeBtn" class="bg-green-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95">枚数</button>
+            <button id="viewModeBtn" class="bg-purple-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95">数値</button>
+            <button id="scaleModeBtn" class="bg-teal-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95 hidden">強調</button>
+            <button id="labelToggleBtn" class="bg-indigo-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95 hidden">ラベルON</button>
+        </div>
+    </header>
+
+    <!-- Main content area -->
+    <main id="main-content" class="flex-grow relative overflow-auto">
+        <!-- 2D Grid View Container -->
+        <div id="grid-container" class="w-full h-full p-4 flex items-center justify-center">
+            <svg id="grid-svg" class="max-w-full max-h-full" viewBox="-150 -150 3000 3900"></svg>
+        </div>
+        <!-- 3D Preview Container -->
+        <div id="preview-container" class="w-full h-full hidden relative">
+             <!-- Container for 3D labels -->
+            <div id="labels-container"></div>
+        </div>
+    </main>
+
+    <!-- Modal for editing values -->
+    <div id="edit-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-sm">
+            <h3 class="text-lg font-bold mb-4" id="modal-title">Edit Point</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">初期値 (<span id="modal-unit-initial">枚</span>)</label>
+                    <input type="number" id="initial-value-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">補正値 (<span id="modal-unit-correction">枚</span>)</label>
+                    <input type="number" id="correction-value-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg p-2">
+                </div>
+                <div class="bg-gray-50 p-3 rounded-md">
+                    <label class="block text-sm font-medium text-gray-500">合計 (<span id="modal-unit-total">枚</span>)</label>
+                    <p id="total-value-display" class="text-xl font-bold text-gray-900 mt-1">0</p>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button id="close-modal-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-transform duration-200 active:scale-95">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+
+<script>
+    // --- CONFIGURATION ---
+    const SPACER_THICKNESS_MM = 0.3;
+    const GRID_WIDTH = 2700;
+    const GRID_HEIGHT = 3600;
+    const NUM_COLS = 5;
+    const NUM_ROWS = 10;
+
+    // --- DOM ELEMENTS ---
+    const displayModeBtn = document.getElementById('displayModeBtn');
+    const unitModeBtn = document.getElementById('unitModeBtn');
+    const viewModeBtn = document.getElementById('viewModeBtn');
+    const scaleModeBtn = document.getElementById('scaleModeBtn');
+    const labelToggleBtn = document.getElementById('labelToggleBtn');
+    const gridContainer = document.getElementById('grid-container');
+    const previewContainer = document.getElementById('preview-container');
+    const labelsContainer = document.getElementById('labels-container');
+    const gridSvg = document.getElementById('grid-svg');
+    const editModal = document.getElementById('edit-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const initialValueInput = document.getElementById('initial-value-input');
+    const correctionValueInput = document.getElementById('correction-value-input');
+    const totalValueDisplay = document.getElementById('total-value-display');
+    const modalTitle = document.getElementById('modal-title');
+    const modalUnits = {
+        initial: document.getElementById('modal-unit-initial'),
+        correction: document.getElementById('modal-unit-correction'),
+        total: document.getElementById('modal-unit-total'),
+    };
+
+    // --- APPLICATION STATE ---
+    let state = {
+        displayMode: 'initial', // 'initial', 'correction', 'total'
+        unitMode: 'sheets',     // 'sheets', 'mm'
+        viewMode: 'numerical',  // 'numerical', 'preview'
+        previewScaleMode: 'exaggerated', // 'real', 'exaggerated'
+        showLabels: true, // 'true', 'false'
+        points: [],
+        activePointId: null,
+    };
+
+    // --- INITIAL DATA ---
+    const initialGridData = [
+        [  10,    9,    3,  -10,  -60 ],
+        [   5,    9,    0,  -12,  -30 ],
+        [  -3,    5,    2,   -3,  -12 ],
+        [  -4,    2,   14,   17,   -9 ],
+        [ -13,   -4,    7,    7,   10 ],
+        [ -19,    5,   14,   10,  -29 ],
+        [ -12,  -20,   -8,    2,   13 ],
+        [ -13,  -11,  -14,    2,   10 ],
+        [ -25,  -11,  -14,  -18,  -27 ],
+        [ -37,  -44,  -44,  -39,  -56 ]
+    ];
+
+    // --- 3D PREVIEW VARIABLES ---
+    let scene, camera, renderer, controls, mesh, labels = [];
+
+    /** Initializes the application. */
+    function initialize() {
+        loadState();
+        setupEventListeners();
+        render();
+    }
+
+    /** Generates the initial point data structure. */
+    function generateInitialPoints() {
+        const points = [];
+        const yGaps = [450, 450, 450, 370, 160, 370, 450, 450, 450];
+        const yPositions = [0];
+        let currentY = 0;
+        yGaps.forEach(gap => { yPositions.push(currentY += gap); });
+        const xPositions = [0, 900, 1350, 1800, 2700];
+
+        for (let row = 0; row < NUM_ROWS; row++) {
+            for (let col = 0; col < NUM_COLS; col++) {
+                points.push({
+                    id: `p-${row}-${col}`, row: row, col: col, x: xPositions[col], y: yPositions[row],
+                    initialValue: initialGridData[row][col] || 0, correctionValue: 0,
+                });
+            }
+        }
+        return points;
+    }
+
+    /** Main render function that updates the UI based on state. */
+    function render() {
+        displayModeBtn.textContent = { initial: '初期値', correction: '補正値', total: '合計' }[state.displayMode];
+        unitModeBtn.textContent = { sheets: '枚数', mm: 'mm' }[state.unitMode];
+        viewModeBtn.textContent = { numerical: '数値', preview: 'プレビュー' }[state.viewMode];
+        scaleModeBtn.textContent = { real: 'リアル', exaggerated: '強調' }[state.previewScaleMode];
+        labelToggleBtn.textContent = state.showLabels ? 'ラベルOFF' : 'ラベルON';
+
+        if (state.viewMode === 'numerical') {
+            gridContainer.classList.remove('hidden');
+            previewContainer.classList.add('hidden');
+            scaleModeBtn.classList.add('hidden');
+            labelToggleBtn.classList.add('hidden');
+            renderGridView();
+        } else {
+            gridContainer.classList.add('hidden');
+            previewContainer.classList.remove('hidden');
+            scaleModeBtn.classList.remove('hidden');
+            labelToggleBtn.classList.remove('hidden');
+            renderPreviewView();
+        }
+    }
+
+    /** Renders the 2D SVG grid. */
+    function renderGridView() {
+        gridSvg.innerHTML = '';
+        const yCoords = [...new Set(state.points.map(p => p.y))];
+        const xCoords = [...new Set(state.points.map(p => p.x))];
+
+        yCoords.forEach(y => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', 0); line.setAttribute('y1', y);
+            line.setAttribute('x2', GRID_WIDTH); line.setAttribute('y2', y);
+            line.setAttribute('stroke', '#cbd5e1'); line.setAttribute('stroke-width', '10');
+            gridSvg.appendChild(line);
+        });
+
+        xCoords.forEach(x => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', x); line.setAttribute('y1', 0);
+            line.setAttribute('x2', x); line.setAttribute('y2', GRID_HEIGHT);
+            line.setAttribute('stroke', '#cbd5e1');
+            if (x === 1350) line.setAttribute('stroke-dasharray', '30, 30');
+            line.setAttribute('stroke-width', '10');
+            gridSvg.appendChild(line);
+        });
+
+        state.points.forEach(point => {
+            const value = getPointValue(point);
+            const displayValue = state.unitMode === 'mm' ? (value * SPACER_THICKNESS_MM).toFixed(1) : value;
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', point.x); text.setAttribute('y', point.y); text.setAttribute('dy', '0.35em');
+            text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', value >= 0 ? '#1e293b' : '#dc2626');
+            text.classList.add('grid-text'); text.textContent = displayValue;
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', point.x); circle.setAttribute('cy', point.y); circle.setAttribute('r', '120');
+            circle.setAttribute('fill', 'rgba(255, 255, 255, 0.5)');
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.dataset.id = point.id; group.appendChild(circle); group.appendChild(text);
+            group.addEventListener('click', () => openEditModal(point.id));
+            gridSvg.appendChild(group);
+        });
+    }
+    
+    /** Renders the 3D preview. */
+    function renderPreviewView() {
+        if (!scene) init3D();
+        update3DGeometry();
+        labelsContainer.style.display = state.showLabels ? 'block' : 'none';
+    }
+    
+    /** Sets up the initial 3D scene. */
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf1f5f9);
+
+        const aspect = previewContainer.clientWidth / previewContainer.clientHeight;
+        camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 15000);
+        
+        camera.position.set(GRID_WIDTH / 2, -GRID_HEIGHT / 2, 4000);
+        
+        // --- CAMERA 'UP' VECTOR CORRECTED ---
+        // Setting the up vector to Z-axis allows for intuitive horizontal rotation.
+        camera.up.set(0, 0, 1);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(previewContainer.clientWidth, previewContainer.clientHeight);
+        previewContainer.appendChild(renderer.domElement);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(GRID_WIDTH / 2, -GRID_HEIGHT / 2, 0);
+        
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(1000, -1500, 2000);
+        scene.add(directionalLight);
+
+        state.points.forEach(point => {
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'label';
+            labelDiv.dataset.id = point.id;
+            labelsContainer.appendChild(labelDiv);
+            labels.push(labelDiv);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            if (state.viewMode === 'preview' && state.showLabels) {
+                updateLabels();
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+        
+        window.addEventListener('resize', onWindowResize, false);
+    }
+    
+    function onWindowResize() {
+        if (state.viewMode === 'preview' && renderer) {
+            camera.aspect = previewContainer.clientWidth / previewContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(previewContainer.clientWidth, previewContainer.clientHeight);
+        }
+    }
+
+    /** Updates the 3D mesh geometry. */
+    function update3DGeometry() {
+        if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
+        const geometry = new THREE.BufferGeometry();
+        const vertices = [];
+        const indices = [];
+
+        state.points.forEach(p => {
+            const value = getPointValue(p);
+            const zValueInMm = value * SPACER_THICKNESS_MM;
+            const scaleFactor = state.previewScaleMode === 'exaggerated' ? 30 : 1;
+            const finalZ = zValueInMm * scaleFactor;
+            // The Y-axis is flipped here to match SVG's coordinate system (Y increases downwards)
+            vertices.push(p.x, -p.y, finalZ);
+        });
+        
+        for (let row = 0; row < NUM_ROWS - 1; row++) {
+            for (let col = 0; col < NUM_COLS - 1; col++) {
+                const a = row * NUM_COLS + col, b = a + 1, c = a + NUM_COLS, d = c + 1;
+                indices.push(a, c, b); indices.push(b, c, d);
+            }
+        }
+        
+        geometry.setIndex(indices);
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.computeVertexNormals();
+        
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x3b82f6, side: THREE.DoubleSide, metalness: 0.1,
+            roughness: 0.5, flatShading: true,
+        });
+        
+        // Mesh position is set to center it relative to its local coordinates
+        mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(0, 0, 0); 
+        scene.add(mesh);
+    }
+
+    /** Updates position and content of 3D labels. */
+    function updateLabels() {
+        if (!mesh) return;
+        const positions = mesh.geometry.attributes.position;
+        
+        state.points.forEach((point, i) => {
+            const label = labels[i];
+            const vertex = new THREE.Vector3(positions.getX(i), positions.getY(i), positions.getZ(i));
+            const screenPosition = vertex.clone().project(camera);
+            const distance = camera.position.distanceTo(vertex);
+            const scale = Math.max(0.5, 1 - distance / 7000); 
+
+            if (screenPosition.z > 1) { // is behind camera
+                label.style.display = 'none';
+            } else {
+                label.style.display = 'block';
+                const x = (screenPosition.x * .5 + .5) * previewContainer.clientWidth;
+                const y = (screenPosition.y * -.5 + .5) * previewContainer.clientHeight;
+                
+                label.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px) scale(${scale})`;
+                
+                const value = getPointValue(point);
+                label.textContent = state.unitMode === 'mm' ? (value * SPACER_THICKNESS_MM).toFixed(1) : value;
+                label.style.color = value >= 0 ? '#1e293b' : '#dc2626';
+            }
+        });
+    }
+
+    /** Gets point value based on display mode. */
+    function getPointValue(point) {
+        switch (state.displayMode) {
+            case 'initial': return point.initialValue;
+            case 'correction': return point.correctionValue;
+            case 'total': return point.initialValue + point.correctionValue;
+            default: return 0;
+        }
+    }
+
+    /** Sets up all event listeners. */
+    function setupEventListeners() {
+        displayModeBtn.addEventListener('click', () => {
+            const modes = ['initial', 'correction', 'total'];
+            state.displayMode = modes[(modes.indexOf(state.displayMode) + 1) % modes.length];
+            render();
+        });
+
+        unitModeBtn.addEventListener('click', () => {
+            state.unitMode = state.unitMode === 'sheets' ? 'mm' : 'sheets';
+            render();
+            if (state.activePointId) updateModalDisplay();
+        });
+
+        viewModeBtn.addEventListener('click', () => {
+            state.viewMode = state.viewMode === 'numerical' ? 'preview' : 'numerical';
+            render();
+        });
+        
+        scaleModeBtn.addEventListener('click', () => {
+            state.previewScaleMode = state.previewScaleMode === 'exaggerated' ? 'real' : 'exaggerated';
+            render();
+        });
+        
+        labelToggleBtn.addEventListener('click', () => {
+            state.showLabels = !state.showLabels;
+            render();
+        });
+
+        closeModalBtn.addEventListener('click', closeEditModal);
+        editModal.addEventListener('click', (e) => {
+             if(e.target === editModal) closeEditModal();
+        });
+
+        initialValueInput.addEventListener('input', handleModalInputChange);
+        correctionValueInput.addEventListener('input', handleModalInputChange);
+    }
+    
+    /** Handles modal input changes. */
+    function handleModalInputChange() {
+        const point = state.points.find(p => p.id === state.activePointId);
+        if (!point) return;
+        point.initialValue = parseFloat(initialValueInput.value) || 0;
+        point.correctionValue = parseFloat(correctionValueInput.value) || 0;
+        updateModalDisplay();
+        saveState();
+    }
+    
+    /** Opens the edit modal. */
+    function openEditModal(pointId) {
+        state.activePointId = pointId;
+        const point = state.points.find(p => p.id === pointId);
+        if (!point) return;
+
+        modalTitle.textContent = `Point (R${point.row + 1}, C${point.col + 1}) 編集`;
+        initialValueInput.value = point.initialValue;
+        correctionValueInput.value = point.correctionValue;
+        
+        updateModalDisplay();
+        editModal.classList.remove('hidden');
+    }
+
+    /** Closes the edit modal. */
+    function closeEditModal() {
+        editModal.classList.add('hidden');
+        state.activePointId = null;
+        render();
+    }
+    
+    /** Updates displayed values in the modal. */
+    function updateModalDisplay() {
+        const point = state.points.find(p => p.id === state.activePointId);
+        if (!point) return;
+        
+        const unitLabel = state.unitMode === 'sheets' ? '枚' : 'mm';
+        [modalUnits.initial, modalUnits.correction, modalUnits.total].forEach(el => el.textContent = unitLabel);
+        
+        const total = point.initialValue + point.correctionValue;
+        totalValueDisplay.textContent = state.unitMode === 'mm' ? (total * SPACER_THICKNESS_MM).toFixed(2) : total;
+    }
+
+    /** Saves state to localStorage. */
+    function saveState() {
+        const dataToSave = state.points.map(p => ({
+            id: p.id,
+            initialValue: p.initialValue,
+            correctionValue: p.correctionValue,
+        }));
+        localStorage.setItem('gridInspectorData', JSON.stringify(dataToSave));
+    }
+
+    /** Loads state from localStorage. */
+    function loadState() {
+        const savedData = localStorage.getItem('gridInspectorData');
+        const initialPoints = generateInitialPoints();
+        if (savedData) {
+            try {
+                const parsedData = JSON.parse(savedData);
+                if(Array.isArray(parsedData) && parsedData.length === initialPoints.length){
+                     initialPoints.forEach(point => {
+                        const savedPoint = parsedData.find(p => p.id === point.id);
+                        if (savedPoint) {
+                            point.initialValue = savedPoint.initialValue;
+                            point.correctionValue = savedPoint.correctionValue;
+                        }
+                    });
+                }
+                state.points = initialPoints;
+            } catch (e) {
+                console.error("Failed to parse saved data, using defaults.", e);
+                state.points = initialPoints;
+            }
+        } else {
+            state.points = initialPoints;
+        }
+    }
+    
+    // --- SCRIPT EXECUTION ---
+    initialize();
+
+</script>
+</body>
+</html>
+
