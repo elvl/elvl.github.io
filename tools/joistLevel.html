@@ -77,6 +77,7 @@
             <button id="unitModeBtn" class="bg-green-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95">枚数</button>
             <button id="viewModeBtn" class="bg-purple-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95">数値</button>
             <button id="scaleModeBtn" class="bg-teal-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95 hidden">強調</button>
+            <button id="colorModeBtn" class="bg-orange-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95 hidden">通常色</button>
             <button id="labelToggleBtn" class="bg-indigo-500 text-white rounded-md px-3 py-2 transition-transform duration-200 active:scale-95 hidden">ラベルON</button>
         </div>
     </header>
@@ -132,6 +133,7 @@
     const unitModeBtn = document.getElementById('unitModeBtn');
     const viewModeBtn = document.getElementById('viewModeBtn');
     const scaleModeBtn = document.getElementById('scaleModeBtn');
+    const colorModeBtn = document.getElementById('colorModeBtn');
     const labelToggleBtn = document.getElementById('labelToggleBtn');
     const gridContainer = document.getElementById('grid-container');
     const previewContainer = document.getElementById('preview-container');
@@ -155,6 +157,7 @@
         unitMode: 'sheets',     // 'sheets', 'mm'
         viewMode: 'numerical',  // 'numerical', 'preview'
         previewScaleMode: 'exaggerated', // 'real', 'exaggerated'
+        colorMode: 'normal', // 'normal', 'distortion'
         showLabels: true, // 'true', 'false'
         points: [],
         activePointId: null,
@@ -210,18 +213,21 @@
         unitModeBtn.textContent = { sheets: '枚数', mm: 'mm' }[state.unitMode];
         viewModeBtn.textContent = { numerical: '数値', preview: 'プレビュー' }[state.viewMode];
         scaleModeBtn.textContent = { real: 'リアル', exaggerated: '強調' }[state.previewScaleMode];
+        colorModeBtn.textContent = { normal: '通常色', distortion: '歪み色' }[state.colorMode];
         labelToggleBtn.textContent = state.showLabels ? 'ラベルOFF' : 'ラベルON';
 
         if (state.viewMode === 'numerical') {
             gridContainer.classList.remove('hidden');
             previewContainer.classList.add('hidden');
             scaleModeBtn.classList.add('hidden');
+            colorModeBtn.classList.add('hidden');
             labelToggleBtn.classList.add('hidden');
             renderGridView();
         } else {
             gridContainer.classList.add('hidden');
             previewContainer.classList.remove('hidden');
             scaleModeBtn.classList.remove('hidden');
+            colorModeBtn.classList.remove('hidden');
             labelToggleBtn.classList.remove('hidden');
             renderPreviewView();
         }
@@ -289,14 +295,11 @@
         renderer.setSize(previewContainer.clientWidth, previewContainer.clientHeight);
         previewContainer.appendChild(renderer.domElement);
 
-        // --- PINCH ZOOM FIX ---
-        // Prevents the browser's default pinch-to-zoom behavior on the 3D canvas.
         previewContainer.addEventListener('touchstart', function(event) {
             if (event.touches.length > 1) {
                 event.preventDefault();
             }
         }, { passive: false });
-        // --- END OF FIX ---
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
@@ -336,6 +339,35 @@
         }
     }
 
+    /** Calculates distortion for each point. */
+    function calculateDistortion() {
+        const distortionValues = [];
+        let maxAbsDistortion = 0;
+
+        for (let i = 0; i < state.points.length; i++) {
+            const point = state.points[i];
+            const neighbors = [];
+            
+            if (point.row > 0) neighbors.push(state.points[i - NUM_COLS]);
+            if (point.row < NUM_ROWS - 1) neighbors.push(state.points[i + NUM_COLS]);
+            if (point.col > 0) neighbors.push(state.points[i - 1]);
+            if (point.col < NUM_COLS - 1) neighbors.push(state.points[i + 1]);
+
+            if (neighbors.length === 0) {
+                distortionValues.push(0);
+                continue;
+            }
+
+            const avgNeighborHeight = neighbors.reduce((sum, n) => sum + getPointValue(n), 0) / neighbors.length;
+            const distortion = getPointValue(point) - avgNeighborHeight;
+            distortionValues.push(distortion);
+            if (Math.abs(distortion) > maxAbsDistortion) {
+                maxAbsDistortion = Math.abs(distortion);
+            }
+        }
+        return { distortionValues, maxAbsDistortion };
+    }
+
     /** Updates the 3D mesh geometry. */
     function update3DGeometry() {
         if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
@@ -360,15 +392,44 @@
         
         geometry.setIndex(indices);
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        
+        let material;
+        if (state.colorMode === 'distortion') {
+            const { distortionValues, maxAbsDistortion } = calculateDistortion();
+            const colors = [];
+            // --- COLOR SCHEME ADJUSTED ---
+            const colorHot = new THREE.Color(0xef4444);     // Red (for convex)
+            const colorNeutral = new THREE.Color(0xa1a1aa); // Grey (for flat)
+            const colorCold = new THREE.Color(0x3b82f6);    // Blue (for concave)
+
+            for (const d of distortionValues) {
+                const color = new THREE.Color();
+                if (maxAbsDistortion > 0.1) { // Add a small threshold to prevent noise
+                    const normalized = d / maxAbsDistortion;
+                    if (normalized > 0) { // Convex (protruding)
+                        color.lerpColors(colorNeutral, colorHot, Math.min(normalized * 1.5, 1));
+                    } else { // Concave (dented)
+                        color.lerpColors(colorNeutral, colorCold, Math.min(-normalized * 1.5, 1));
+                    }
+                } else {
+                    color.copy(colorNeutral);
+                }
+                colors.push(color.r, color.g, color.b);
+            }
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            material = new THREE.MeshStandardMaterial({
+                side: THREE.DoubleSide, metalness: 0.1, roughness: 0.8,
+                vertexColors: true,
+            });
+        } else { // Normal color mode
+            material = new THREE.MeshStandardMaterial({
+                color: 0x3b82f6, side: THREE.DoubleSide, metalness: 0.1,
+                roughness: 0.5, flatShading: true,
+            });
+        }
+        
         geometry.computeVertexNormals();
-        
-        const material = new THREE.MeshStandardMaterial({
-            color: 0x3b82f6, side: THREE.DoubleSide, metalness: 0.1,
-            roughness: 0.5, flatShading: true,
-        });
-        
         mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(0, 0, 0);
         scene.add(mesh);
     }
 
@@ -417,33 +478,31 @@
             state.displayMode = modes[(modes.indexOf(state.displayMode) + 1) % modes.length];
             render();
         });
-
         unitModeBtn.addEventListener('click', () => {
             state.unitMode = state.unitMode === 'sheets' ? 'mm' : 'sheets';
             render();
             if (state.activePointId) updateModalDisplay();
         });
-
         viewModeBtn.addEventListener('click', () => {
             state.viewMode = state.viewMode === 'numerical' ? 'preview' : 'numerical';
             render();
         });
-        
         scaleModeBtn.addEventListener('click', () => {
             state.previewScaleMode = state.previewScaleMode === 'exaggerated' ? 'real' : 'exaggerated';
             render();
         });
-        
+        colorModeBtn.addEventListener('click', () => {
+            state.colorMode = state.colorMode === 'normal' ? 'distortion' : 'normal';
+            render();
+        });
         labelToggleBtn.addEventListener('click', () => {
             state.showLabels = !state.showLabels;
             render();
         });
-
         closeModalBtn.addEventListener('click', closeEditModal);
         editModal.addEventListener('click', (e) => {
              if(e.target === editModal) closeEditModal();
         });
-
         initialValueInput.addEventListener('input', handleModalInputChange);
         correctionValueInput.addEventListener('input', handleModalInputChange);
     }
@@ -463,11 +522,9 @@
         state.activePointId = pointId;
         const point = state.points.find(p => p.id === pointId);
         if (!point) return;
-
         modalTitle.textContent = `Point (R${point.row + 1}, C${point.col + 1}) 編集`;
         initialValueInput.value = point.initialValue;
         correctionValueInput.value = point.correctionValue;
-        
         updateModalDisplay();
         editModal.classList.remove('hidden');
     }
@@ -483,10 +540,8 @@
     function updateModalDisplay() {
         const point = state.points.find(p => p.id === state.activePointId);
         if (!point) return;
-        
         const unitLabel = state.unitMode === 'sheets' ? '枚' : 'mm';
         [modalUnits.initial, modalUnits.correction, modalUnits.total].forEach(el => el.textContent = unitLabel);
-        
         const total = point.initialValue + point.correctionValue;
         totalValueDisplay.textContent = state.unitMode === 'mm' ? (total * SPACER_THICKNESS_MM).toFixed(2) : total;
     }
